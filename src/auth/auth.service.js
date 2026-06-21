@@ -13,8 +13,13 @@ export class AuthService {
       throw new BadRequestException('Usuario y contraseña son requeridos');
     }
 
-    // Decodificar contraseña en Base64
-    let password = loginRequest.password;
+    // Validar y decodificar contraseña en Base64
+    const base64Regex = /^[A-Za-z0-9+/]+={0,2}$/;
+    if (!base64Regex.test(loginRequest.password)) {
+      throw new BadRequestException('Problema con la codificación de la contraseña (formato Base64 inválido)');
+    }
+
+    let password;
     try {
       password = Buffer.from(loginRequest.password, 'base64').toString('utf8');
     } catch (error) {
