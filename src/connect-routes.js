@@ -1,13 +1,16 @@
 import { ElizaService } from './gen/proto/eliza_pb.js';
 import { AuthService } from './auth/auth.service.js';
 import { ConnectError, Code } from '@connectrpc/connect';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 /**
  * ConnectRPC routes definitions.
  * @param {import('@connectrpc/connect').ConnectRouter} router
  * @param {import('@nestjs/common').INestApplication} app
+ * @param {Function} registerServerReflectionFromUint8Array
  */
-export default (router, app) => {
+export default (router, app, registerServerReflectionFromUint8Array) => {
   const authService = app.get(AuthService);
 
   router.service(ElizaService, {
@@ -57,4 +60,17 @@ export default (router, app) => {
       }
     },
   });
+
+  // Registrar Reflection API utilizando el descriptor binario compilado
+  try {
+    let descriptorBytes;
+    try {
+      descriptorBytes = readFileSync(join(__dirname, 'gen/descriptor.bin'));
+    } catch (e) {
+      descriptorBytes = readFileSync(join(__dirname, '../gen/descriptor.bin'));
+    }
+    registerServerReflectionFromUint8Array(router, descriptorBytes);
+  } catch (error) {
+    console.error('❌ Error al registrar gRPC Server Reflection:', error);
+  }
 };
