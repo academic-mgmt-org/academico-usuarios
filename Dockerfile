@@ -19,7 +19,7 @@ WORKDIR /usr/src/app
 COPY --from=builder /usr/src/app/dist ./dist
 COPY package*.json ./
 
-# ENV NODE_ENV=production
+ENV NODE_ENV=production
 
 RUN npm install --only=production --legacy-peer-deps && npm cache clean --force
 
