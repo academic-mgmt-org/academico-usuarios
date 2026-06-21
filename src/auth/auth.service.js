@@ -105,6 +105,7 @@ export class AuthService {
       userProfessor: userProfessor,
       userAdministrative: null,
       email: userRow.email,
+      userName: userRow.nombres,
       sessionId: sessionId,
       applications: apps
     };
