@@ -16,14 +16,14 @@ export class AuthService {
     // Validar y decodificar contraseña en Base64
     const base64Regex = /^[A-Za-z0-9+/]+={0,2}$/;
     if (!base64Regex.test(loginRequest.password)) {
-      throw new BadRequestException('Problema con la codificación de la contraseña (formato Base64 inválido)');
+      throw new UnauthorizedException('Usuario o contraseña incorrectos. Verifique sus credenciales.');
     }
 
     let password;
     try {
       password = Buffer.from(loginRequest.password, 'base64').toString('utf8');
     } catch (error) {
-      throw new BadRequestException('Problema con la codificación de la contraseña');
+      throw new UnauthorizedException('Usuario o contraseña incorrectos. Verifique sus credenciales.');
     }
 
     const email = loginRequest.username.toLowerCase();
