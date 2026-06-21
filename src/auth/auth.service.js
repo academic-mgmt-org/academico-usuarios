@@ -1,5 +1,6 @@
-import { Inject, Injectable, BadRequestException } from '@nestjs/common';
+import { Inject, Injectable, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import getPool from '../db';
 
 @Injectable()
 export class AuthService {
@@ -20,34 +21,89 @@ export class AuthService {
       throw new BadRequestException('Problema con la codificación de la contraseña');
     }
 
-    // Lógica simplificada de validación
     const email = loginRequest.username.toLowerCase();
+    const pool = getPool();
 
-    // Generar sesión ID aleatoria
+    // Query para obtener el usuario y su rol según el esquema simplificado (V2)
+    const query = `
+      SELECT 
+        u.id AS usuario_id,
+        u.nombres,
+        u.apellidos,
+        u.email,
+        u.password_hash,
+        u.identificacion,
+        u.estado,
+        r.nombre AS rol_nombre
+      FROM academico.usuarios u
+      INNER JOIN academico.roles r ON r.id = u.rol_id
+      WHERE u.email = $1 AND u.estado = 'activo'
+    `;
+
+    let userRow;
+    try {
+      const { rows } = await pool.query(query, [email]);
+      if (rows.length === 0) {
+        throw new UnauthorizedException('Usuario o contraseña incorrectos. Verifique sus credenciales.');
+      }
+      userRow = rows[0];
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      throw new BadRequestException('Error al consultar el usuario en la base de datos: ' + error.message);
+    }
+
+    // Validación de la contraseña (comparación directa con password_hash)
+    if (userRow.password_hash !== password) {
+      throw new UnauthorizedException('Usuario o contraseña incorrectos. Verifique sus credenciales.');
+    }
+
+    // Generar sessionId único
     const sessionId = 'SESSION-' + Math.random().toString(36).substring(2, 15).toUpperCase();
 
-    // Estructura del payload JWT según utn-movil-seguridad
+    // Determinar identificadores y roles según el rol de la base de datos
+    const identifier = userRow.identificacion || String(userRow.usuario_id);
+    let userStudent = null;
+    let userProfessor = null;
+    const apps = [];
+
+    const rol = userRow.rol_nombre.toLowerCase();
+
+    if (rol === 'estudiante') {
+      userStudent = 'E' + identifier;
+      apps.push({
+        appName: 'PORTAFOLIO_ESTUDIANTE',
+        roles: [
+          {
+            roleName: 'ESTUDIANTE',
+            permissions: ['LEER_NOTAS', 'CONSULTAR_HORARIOS', 'DESCARGAR_DOCUMENTOS']
+          }
+        ]
+      });
+    } else if (rol === 'docente') {
+      userProfessor = 'D' + identifier;
+      apps.push({
+        appName: 'PORTAFOLIO_DOCENTE',
+        roles: [
+          {
+            roleName: 'DOCENTE',
+            permissions: ['REGISTRAR_NOTAS', 'VER_ESTUDIANTES']
+          }
+        ]
+      });
+    }
+
     const payload = {
-      identifier: '1000000001', // Identificador de prueba (cédula)
-      userStudent: 'E1000000001', // Cuenta estudiante mock
-      userProfessor: null,
+      identifier: identifier,
+      userStudent: userStudent,
+      userProfessor: userProfessor,
       userAdministrative: null,
-      email: email,
+      email: userRow.email,
       sessionId: sessionId,
-      applications: [
-        {
-          appName: 'PORTAFOLIO_ESTUDIANTE',
-          roles: [
-            {
-              roleName: 'ESTUDIANTE',
-              permissions: ['LEER_NOTAS', 'CONSULTAR_HORARIOS', 'DESCARGAR_DOCUMENTOS']
-            }
-          ]
-        }
-      ]
+      applications: apps
     };
 
-    // Firmamos el token de acceso
     const secret = process.env.JWT_SECRET || process.env.JWT_DOC_SECRET || 'utn-secret-key-123';
     const accessToken = this.jwtService.sign(payload, { secret, expiresIn: '2h' });
     const refreshToken = this.jwtService.sign({

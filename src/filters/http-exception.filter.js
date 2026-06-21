@@ -114,6 +114,6 @@ export class HttpExceptionFilter {
     }
 
     // Enviar respuesta al cliente
-    response.status(status).json(errorResponse);
+    response.status(status).send(errorResponse);
   }
 }
