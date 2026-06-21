@@ -24,7 +24,7 @@ async function bootstrap() {
 
   const fastifyInstance = app.getHttpAdapter().getInstance();
   await fastifyInstance.register(fastifyConnectPlugin, {
-    routes: connectRoutes,
+    routes: (router) => connectRoutes(router, app),
     interceptors: [
       (next) => async (req) => {
         const apiKey = req.header.get('x-api-key');
