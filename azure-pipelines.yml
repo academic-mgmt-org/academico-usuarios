@@ -1,28 +1,83 @@
+# Docker
+# Build and push an image to Azure Container Registry
+
 trigger:
-  - main
+- main
 
-pool:
-  name: 'Default'
+resources:
+- repo: self
 
-steps:
-  - script: |
-      if [ -f /home/azureuser/academico-usuarios/.env ]; then
-        cp /home/azureuser/academico-usuarios/.env .
-      else
-        echo "Warning: .env file not found in /home/azureuser/academico-usuarios/"
-      fi
-      if [ -f /home/azureuser/academico-usuarios/docker-compose.yml ]; then
-        cp /home/azureuser/academico-usuarios/docker-compose.yml .
-      else
-        echo "Warning: docker-compose.yml file not found in /home/azureuser/academico-usuarios/"
-      fi
-    displayName: 'Prepare environment files'
+variables:
+  # Container registry service connection established during pipeline creation
+  dockerRegistryServiceConnection: '5cffc302-0a35-4b2b-8ea1-04a9ebd67c07'
+  imageRepository: 'academicmgmtorgacademicousuarios'
+  containerRegistry: 'acracademicoutn.azurecr.io'
+  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  tag: '$(Build.BuildId)'
 
-  - script: |
-      docker compose down || true
-      docker compose up -d --build
-    displayName: 'Build and deploy with Docker Compose'
+  # Agent VM image name
+  vmImageName: 'ubuntu-latest'
 
-  - script: |
-      docker compose ps
-    displayName: 'Verify running containers'
+  # Container name on your personal server
+  containerName: 'academico-usuarios-app'
+
+stages:
+- stage: Build
+  displayName: Build and push stage
+  jobs:
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: Docker@2
+      displayName: Build and push an image to container registry
+      inputs:
+        command: buildAndPush
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+        addPipelineData: false
+
+- stage: Deploy
+  displayName: Deploy to personal server
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+  - deployment: DeployToPersonalServer
+    displayName: Deploy Docker container
+    environment:
+      name: 'servidor-gateway'
+      resourceType: virtualMachine
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: Docker@2
+            displayName: Login to Azure Container Registry
+            inputs:
+              command: login
+              containerRegistry: $(dockerRegistryServiceConnection)
+
+          - script: |
+              echo "Pulling image..."
+              docker pull $(containerRegistry)/$(imageRepository):$(tag)
+
+              echo "Stopping old container..."
+              docker rm -f $(containerName) || true
+
+              echo "Starting new container..."
+              docker run -d \
+                --name $(containerName) \
+                --restart unless-stopped \
+                -p 3001:3001 \
+                --env-file /home/azureuser/academico-usuarios/.env \
+                $(containerRegistry)/$(imageRepository):$(tag)
+
+              echo "Cleaning up dangling images..."
+              docker image prune -f
+
+              echo "Deployment completed."
+            displayName: Run container on personal server
