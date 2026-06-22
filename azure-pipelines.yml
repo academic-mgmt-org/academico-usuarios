@@ -11,7 +11,12 @@ steps:
       else
         echo "Warning: .env file not found in /home/azureuser/academico-usuarios/"
       fi
-    displayName: 'Prepare environment variables'
+      if [ -f /home/azureuser/academico-usuarios/docker-compose.yml ]; then
+        cp /home/azureuser/academico-usuarios/docker-compose.yml .
+      else
+        echo "Warning: docker-compose.yml file not found in /home/azureuser/academico-usuarios/"
+      fi
+    displayName: 'Prepare environment files'
 
   - script: |
       docker compose down || true
