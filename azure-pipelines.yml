@@ -19,7 +19,7 @@ variables:
   vmImageName: 'ubuntu-latest'
 
   # Container name on your personal server
-  containerName: 'academico-usuarios-app'
+  containerName: 'academico-usuarios'
 
 stages:
 - stage: Build
