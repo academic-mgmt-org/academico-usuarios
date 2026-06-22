@@ -1,0 +1,23 @@
+trigger:
+  - main
+
+pool:
+  name: 'Default'
+
+steps:
+  - script: |
+      if [ -f /home/azureuser/academico-usuarios/.env ]; then
+        cp /home/azureuser/academico-usuarios/.env .
+      else
+        echo "Warning: .env file not found in /home/azureuser/academico-usuarios/"
+      fi
+    displayName: 'Prepare environment variables'
+
+  - script: |
+      docker compose down || true
+      docker compose up -d --build
+    displayName: 'Build and deploy with Docker Compose'
+
+  - script: |
+      docker compose ps
+    displayName: 'Verify running containers'
