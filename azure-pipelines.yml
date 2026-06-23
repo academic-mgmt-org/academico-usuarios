@@ -64,17 +64,27 @@ stages:
           - script: |
               echo "Creating environment folder and file..."
               mkdir -p /home/azureuser/academico-usuarios
-              cat << 'EOF' > /home/azureuser/academico-usuarios/.env
-              PORT=3001
-              NODE_ENV=production
-              USUARIOS_API_KEY=d3b07384d113edec49eaa6238ad5ff00
-              DB_HOST=petclinic-dev-pg-20260613.postgres.database.azure.com
-              DB_PORT=5432
-              DB_DATABASE=academico_dev
-              DB_USER=petclinicadmin
-              DB_PASSWORD=Vd9_Rx42!Qa7Lm26Zp
+              umask 077
+              cat > /home/azureuser/academico-usuarios/.env << EOF
+              PORT=${PORT}
+              NODE_ENV=${NODE_ENV}
+              USUARIOS_API_KEY=${USUARIOS_API_KEY}
+              DB_HOST=${DB_HOST}
+              DB_PORT=${DB_PORT}
+              DB_DATABASE=${DB_DATABASE}
+              DB_USER=${DB_USER}
+              DB_PASSWORD=${DB_PASSWORD}
               EOF
             displayName: 'Create .env file on personal server'
+            env:
+              PORT: 3001
+              NODE_ENV: production
+              USUARIOS_API_KEY: $(USUARIOS_API_KEY)
+              DB_HOST: $(DB_HOST)
+              DB_PORT: $(DB_PORT)
+              DB_DATABASE: $(DB_DATABASE)
+              DB_USER: $(DB_USER)
+              DB_PASSWORD: $(DB_PASSWORD)
 
           - script: |
               echo "Pulling image..."
