@@ -96,7 +96,17 @@ stages:
                 --restart unless-stopped \
                 -p 3001:3001 \
                 --env-file /home/azureuser/academico-usuarios/.env \
+                -e NODE_ENV=production \
                 $(containerRegistry)/$(imageRepository):$(tag)
+
+              echo "Verifying container is running..."
+              sleep 5
+              if ! docker ps --filter "name=^/$(containerName)$" --filter "status=running" --format '{{.Names}}' | grep -qx "$(containerName)"; then
+                echo "Container $(containerName) did not stay running."
+                docker ps -a --filter "name=^/$(containerName)$"
+                docker logs --tail 200 $(containerName) || true
+                exit 1
+              fi
 
               echo "Cleaning up dangling images..."
               docker image prune -f
