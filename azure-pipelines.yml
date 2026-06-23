@@ -75,6 +75,7 @@ stages:
               DB_USER=${DB_USER}
               DB_PASSWORD=${DB_PASSWORD}
               EOF
+              chmod 600 /home/azureuser/academico-usuarios/.env
             displayName: 'Create .env file on personal server'
             env:
               PORT: 3001
@@ -87,14 +88,29 @@ stages:
               DB_PASSWORD: $(DB_PASSWORD)
 
           - script: |
+              ENV_FILE=/home/azureuser/academico-usuarios/.env
+              SERVICE_PORT=$(sed -n 's/^PORT=//p' "$ENV_FILE" | tail -n 1)
+
+              if [ -z "$SERVICE_PORT" ]; then
+                echo "Missing PORT in $ENV_FILE."
+                exit 1
+              fi
+
+              case "$SERVICE_PORT" in
+                *[!0-9]*)
+                  echo "Invalid PORT value in $ENV_FILE: $SERVICE_PORT"
+                  exit 1
+                  ;;
+              esac
+
               echo "Pulling image..."
               docker pull $(containerRegistry)/$(imageRepository):$(tag)
 
               echo "Stopping old container..."
               docker rm -f $(containerName) academico-usuarios-app || true
 
-              echo "Stopping any container using port 3001..."
-              PORT_CONTAINERS=$(docker ps -q --filter "publish=3001" || true)
+              echo "Stopping any container using port $SERVICE_PORT..."
+              PORT_CONTAINERS=$(docker ps -q --filter "publish=$SERVICE_PORT" || true)
 
               if [ -n "$PORT_CONTAINERS" ]; then
                 docker rm -f $PORT_CONTAINERS
@@ -104,8 +120,8 @@ stages:
               docker run -d \
                 --name $(containerName) \
                 --restart unless-stopped \
-                -p 3001:3001 \
-                --env-file /home/azureuser/academico-usuarios/.env \
+                -p ${SERVICE_PORT}:${SERVICE_PORT} \
+                --env-file "$ENV_FILE" \
                 -e NODE_ENV=production \
                 $(containerRegistry)/$(imageRepository):$(tag)
 
