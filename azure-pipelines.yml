@@ -20,6 +20,10 @@ variables:
 
   # Container name on your personal server
   containerName: 'academico-usuarios'
+  prodSshHost: '20.115.132.131'
+  prodSshUser: 'azureuser'
+  prodRemoteAppPath: '/home/azureuser/academico-usuarios'
+  prodComposeFile: 'docker-compose.pipeline.yml'
 
 stages:
 - stage: Build
@@ -41,122 +45,183 @@ stages:
           $(tag)
         addPipelineData: false
 
-- stage: Deploy
-  displayName: Deploy to personal server
+- stage: ApproveProduction
+  displayName: Approve production deployment
   dependsOn: Build
   condition: succeeded()
   jobs:
-  - deployment: DeployToPersonalServer
-    displayName: Deploy Docker container
-    environment:
-      name: 'servidor-gateway'
-      resourceType: virtualMachine
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - task: Docker@2
-            displayName: Login to Azure Container Registry
-            inputs:
-              command: login
-              containerRegistry: $(dockerRegistryServiceConnection)
+  - job: WaitForProductionApproval
+    displayName: Await production approval
+    pool: server
+    timeoutInMinutes: 1440
+    steps:
+    - task: ManualValidation@1
+      displayName: Approve production deployment
+      timeoutInMinutes: 1440
+      inputs:
+        notifyUsers: 'Guytho1996'
+        approvers: 'Guytho1996'
+        allowApproversToApproveTheirOwnRuns: true
+        instructions: 'Approve to deploy academico-usuarios to production server 20.115.132.131.'
+        onTimeout: reject
 
-          - script: |
-              ENV_FILE=/home/azureuser/academico-usuarios/.env
+- stage: DeployProduction
+  displayName: Deploy to production
+  dependsOn: ApproveProduction
+  condition: succeeded()
+  jobs:
+  - job: DeployProduction
+    displayName: Deploy Docker Compose on production server
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: Docker@2
+      displayName: Login to Azure Container Registry
+      inputs:
+        command: login
+        containerRegistry: $(dockerRegistryServiceConnection)
 
-              echo "Creating environment folder and file..."
-              mkdir -p /home/azureuser/academico-usuarios
+    - script: |
+        set -euo pipefail
 
-              if [ ! -f "$ENV_FILE" ]; then
-                echo "Missing $ENV_FILE. Create it with PORT=<service-port> before deploying."
-                exit 1
-              fi
+        require_env() {
+          local name="$1"
+          if [ -z "${!name:-}" ]; then
+            echo "Missing required environment variable: $name"
+            exit 1
+          fi
+        }
 
-              SERVICE_PORT=$(sed -n 's/^PORT=//p' "$ENV_FILE" | tail -n 1)
+        for name in PROD_SSH_PRIVATE_KEY_B64 USUARIOS_API_KEY DB_HOST DB_PORT DB_DATABASE DB_USER DB_PASSWORD; do
+          require_env "$name"
+        done
 
-              if [ -z "$SERVICE_PORT" ]; then
-                echo "Missing PORT in $ENV_FILE."
-                exit 1
-              fi
+        IMAGE="${CONTAINER_REGISTRY}/${IMAGE_REPOSITORY}:${TAG}"
+        SSH_DIR="$(mktemp -d)"
+        ENV_FILE_LOCAL="$(mktemp)"
+        COMPOSE_FILE_LOCAL="$(mktemp)"
 
-              case "$SERVICE_PORT" in
-                *[!0-9]*)
-                  echo "Invalid PORT value in $ENV_FILE: $SERVICE_PORT"
-                  exit 1
-                  ;;
-              esac
+        cleanup() {
+          rm -rf "$SSH_DIR" "$ENV_FILE_LOCAL" "$COMPOSE_FILE_LOCAL"
+        }
+        trap cleanup EXIT
 
-              umask 077
-              cat > "$ENV_FILE" << EOF
-              PORT=${SERVICE_PORT}
-              NODE_ENV=${NODE_ENV}
-              USUARIOS_API_KEY=${USUARIOS_API_KEY}
-              DB_HOST=${DB_HOST}
-              DB_PORT=${DB_PORT}
-              DB_DATABASE=${DB_DATABASE}
-              DB_USER=${DB_USER}
-              DB_PASSWORD=${DB_PASSWORD}
-              EOF
-              chmod 600 "$ENV_FILE"
-            displayName: 'Create .env file on personal server'
-            env:
-              NODE_ENV: production
-              USUARIOS_API_KEY: $(USUARIOS_API_KEY)
-              DB_HOST: $(DB_HOST)
-              DB_PORT: $(DB_PORT)
-              DB_DATABASE: $(DB_DATABASE)
-              DB_USER: $(DB_USER)
-              DB_PASSWORD: $(DB_PASSWORD)
+        mkdir -p "$SSH_DIR"
+        chmod 700 "$SSH_DIR"
+        printf '%s' "$PROD_SSH_PRIVATE_KEY_B64" | base64 -d > "$SSH_DIR/key"
+        chmod 600 "$SSH_DIR/key"
+        ssh-keyscan -T 10 "$PROD_SSH_HOST" > "$SSH_DIR/known_hosts"
 
-          - script: |
-              ENV_FILE=/home/azureuser/academico-usuarios/.env
-              SERVICE_PORT=$(sed -n 's/^PORT=//p' "$ENV_FILE" | tail -n 1)
+        SSH_OPTS=(
+          -i "$SSH_DIR/key"
+          -o IdentitiesOnly=yes
+          -o UserKnownHostsFile="$SSH_DIR/known_hosts"
+          -o StrictHostKeyChecking=yes
+        )
+        REMOTE="${PROD_SSH_USER}@${PROD_SSH_HOST}"
 
-              if [ -z "$SERVICE_PORT" ]; then
-                echo "Missing PORT in $ENV_FILE."
-                exit 1
-              fi
+        DOCKER_CONFIG_FILE="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
+        if [ ! -f "$DOCKER_CONFIG_FILE" ]; then
+          echo "Missing Docker config after ACR login: $DOCKER_CONFIG_FILE"
+          exit 1
+        fi
 
-              case "$SERVICE_PORT" in
-                *[!0-9]*)
-                  echo "Invalid PORT value in $ENV_FILE: $SERVICE_PORT"
-                  exit 1
-                  ;;
-              esac
+        echo "Copying ACR Docker login to production server..."
+        ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p ~/.docker && umask 077 && cat > ~/.docker/config.json" < "$DOCKER_CONFIG_FILE"
 
-              echo "Pulling image..."
-              docker pull $(containerRegistry)/$(imageRepository):$(tag)
+        echo "Reading production service port..."
+        SERVICE_PORT="$(
+          ssh "${SSH_OPTS[@]}" "$REMOTE" \
+            "set -eu; ENV_FILE='$REMOTE_APP_PATH/.env'; if [ ! -f \"\$ENV_FILE\" ]; then echo \"Missing \$ENV_FILE\" >&2; exit 1; fi; sed -n 's/^PORT=//p' \"\$ENV_FILE\" | tail -n 1"
+        )"
 
-              echo "Stopping old container..."
-              docker rm -f $(containerName) academico-usuarios-app || true
+        if [[ ! "$SERVICE_PORT" =~ ^[0-9]+$ ]]; then
+          echo "Invalid PORT value in $REMOTE_APP_PATH/.env: $SERVICE_PORT"
+          exit 1
+        fi
 
-              echo "Stopping any container using port $SERVICE_PORT..."
-              PORT_CONTAINERS=$(docker ps -q --filter "publish=$SERVICE_PORT" || true)
+        umask 077
+        {
+          printf 'PORT=%s\n' "$SERVICE_PORT"
+          printf 'NODE_ENV=production\n'
+          printf 'USUARIOS_API_KEY=%s\n' "$USUARIOS_API_KEY"
+          printf 'DB_HOST=%s\n' "$DB_HOST"
+          printf 'DB_PORT=%s\n' "$DB_PORT"
+          printf 'DB_DATABASE=%s\n' "$DB_DATABASE"
+          printf 'DB_USER=%s\n' "$DB_USER"
+          printf 'DB_PASSWORD=%s\n' "$DB_PASSWORD"
+        } > "$ENV_FILE_LOCAL"
 
-              if [ -n "$PORT_CONTAINERS" ]; then
-                docker rm -f $PORT_CONTAINERS
-              fi
+        cat > "$COMPOSE_FILE_LOCAL" << EOF
+        services:
+          academico-usuarios:
+            image: ${IMAGE}
+            container_name: ${CONTAINER_NAME}
+            restart: always
+            ports:
+              - "${SERVICE_PORT}:${SERVICE_PORT}"
+            env_file:
+              - .env
+            environment:
+              - NODE_ENV=production
+        EOF
 
-              echo "Starting new container..."
-              docker run -d \
-                --name $(containerName) \
-                --restart unless-stopped \
-                -p ${SERVICE_PORT}:${SERVICE_PORT} \
-                --env-file "$ENV_FILE" \
-                -e NODE_ENV=production \
-                $(containerRegistry)/$(imageRepository):$(tag)
+        echo "Updating production .env and compose file..."
+        ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p '$REMOTE_APP_PATH' && umask 077 && cat > '$REMOTE_APP_PATH/.env.pipeline'" < "$ENV_FILE_LOCAL"
+        ssh "${SSH_OPTS[@]}" "$REMOTE" "mv '$REMOTE_APP_PATH/.env.pipeline' '$REMOTE_APP_PATH/.env' && chmod 600 '$REMOTE_APP_PATH/.env'"
+        ssh "${SSH_OPTS[@]}" "$REMOTE" "cat > '$REMOTE_APP_PATH/$PROD_COMPOSE_FILE'" < "$COMPOSE_FILE_LOCAL"
 
-              echo "Verifying container is running..."
-              sleep 5
-              if ! docker ps --filter "name=^/$(containerName)$" --filter "status=running" --format '{{.Names}}' | grep -qx "$(containerName)"; then
-                echo "Container $(containerName) did not stay running."
-                docker ps -a --filter "name=^/$(containerName)$"
-                docker logs --tail 200 $(containerName) || true
-                exit 1
-              fi
+        echo "Deploying with Docker Compose..."
+        ssh "${SSH_OPTS[@]}" "$REMOTE" \
+          "REMOTE_APP_PATH='$REMOTE_APP_PATH' PROD_COMPOSE_FILE='$PROD_COMPOSE_FILE' CONTAINER_NAME='$CONTAINER_NAME' bash -se" << 'REMOTE_SCRIPT'
+        set -euo pipefail
 
-              echo "Cleaning up dangling images..."
-              docker image prune -f
+        cd "$REMOTE_APP_PATH"
 
-              echo "Deployment completed."
-            displayName: Run container on personal server
+        if [ -f docker-compose.yml ]; then
+          echo "Stopping current compose project..."
+          docker compose -f docker-compose.yml down --remove-orphans || true
+        fi
+
+        echo "Stopping previous pipeline compose project..."
+        docker compose -f "$PROD_COMPOSE_FILE" down --remove-orphans || true
+
+        echo "Pulling production image..."
+        docker compose -f "$PROD_COMPOSE_FILE" pull
+
+        echo "Starting production compose project..."
+        docker compose -f "$PROD_COMPOSE_FILE" up -d --remove-orphans
+
+        echo "Verifying container is running..."
+        sleep 8
+        if ! docker ps --filter "name=^/${CONTAINER_NAME}$" --filter "status=running" --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+          echo "Container $CONTAINER_NAME did not stay running."
+          docker ps -a --filter "name=^/${CONTAINER_NAME}$"
+          docker logs --tail 200 "$CONTAINER_NAME" || true
+          exit 1
+        fi
+
+        docker compose -f "$PROD_COMPOSE_FILE" ps
+
+        echo "Cleaning up dangling images..."
+        docker image prune -f
+
+        echo "Deployment completed."
+        REMOTE_SCRIPT
+      displayName: Deploy academico-usuarios with Docker Compose
+      env:
+        CONTAINER_REGISTRY: $(containerRegistry)
+        IMAGE_REPOSITORY: $(imageRepository)
+        TAG: $(tag)
+        CONTAINER_NAME: $(containerName)
+        PROD_SSH_HOST: $(prodSshHost)
+        PROD_SSH_USER: $(prodSshUser)
+        REMOTE_APP_PATH: $(prodRemoteAppPath)
+        PROD_COMPOSE_FILE: $(prodComposeFile)
+        PROD_SSH_PRIVATE_KEY_B64: $(PROD_SSH_PRIVATE_KEY_B64)
+        USUARIOS_API_KEY: $(USUARIOS_API_KEY)
+        DB_HOST: $(DB_HOST)
+        DB_PORT: $(DB_PORT)
+        DB_DATABASE: $(DB_DATABASE)
+        DB_USER: $(DB_USER)
+        DB_PASSWORD: $(DB_PASSWORD)
