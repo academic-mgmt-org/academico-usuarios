@@ -45,9 +45,29 @@ stages:
           $(tag)
         addPipelineData: false
 
+- stage: ApproveProduction
+  displayName: Approve production deployment
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+  - job: WaitForProductionApproval
+    displayName: Await production approval
+    pool: server
+    timeoutInMinutes: 1440
+    steps:
+    - task: ManualValidation@1
+      displayName: Approve production deployment
+      timeoutInMinutes: 1440
+      inputs:
+        notifyUsers: 'Guytho1996'
+        approvers: 'Guytho1996'
+        allowApproversToApproveTheirOwnRuns: true
+        instructions: 'Approve to deploy academico-usuarios to production server 20.115.132.131.'
+        onTimeout: reject
+
 - stage: DeployProduction
   displayName: Deploy to production
-  dependsOn: Build
+  dependsOn: ApproveProduction
   condition: succeeded()
   jobs:
   - job: DeployProduction
