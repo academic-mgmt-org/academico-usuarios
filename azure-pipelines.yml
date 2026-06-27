@@ -59,8 +59,8 @@ stages:
       displayName: Approve production deployment
       timeoutInMinutes: 1440
       inputs:
-        notifyUsers: 'Guytho1996'
-        approvers: 'Guytho1996'
+        notifyUsers: 'gacalderonr@utn.edu.ec'
+        approvers: 'gacalderonr@utn.edu.ec'
         allowApproversToApproveTheirOwnRuns: true
         instructions: 'Approve to deploy academico-usuarios to production server 20.115.132.131.'
         onTimeout: reject
