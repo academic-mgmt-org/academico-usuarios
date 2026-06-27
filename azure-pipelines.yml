@@ -92,7 +92,7 @@ stages:
           fi
         }
 
-        for name in PROD_SSH_PRIVATE_KEY_B64 USUARIOS_API_KEY DB_HOST DB_PORT DB_DATABASE DB_USER DB_PASSWORD; do
+        for name in PROD_SSH_PRIVATE_KEY_B64 DB_HOST DB_PORT DB_DATABASE DB_USER DB_PASSWORD; do
           require_env "$name"
         done
 
@@ -144,7 +144,6 @@ stages:
         {
           printf 'PORT=%s\n' "$SERVICE_PORT"
           printf 'NODE_ENV=production\n'
-          printf 'USUARIOS_API_KEY=%s\n' "$USUARIOS_API_KEY"
           printf 'DB_HOST=%s\n' "$DB_HOST"
           printf 'DB_PORT=%s\n' "$DB_PORT"
           printf 'DB_DATABASE=%s\n' "$DB_DATABASE"
@@ -219,7 +218,6 @@ stages:
         REMOTE_APP_PATH: $(prodRemoteAppPath)
         PROD_COMPOSE_FILE: $(prodComposeFile)
         PROD_SSH_PRIVATE_KEY_B64: $(PROD_SSH_PRIVATE_KEY_B64)
-        USUARIOS_API_KEY: $(USUARIOS_API_KEY)
         DB_HOST: $(DB_HOST)
         DB_PORT: $(DB_PORT)
         DB_DATABASE: $(DB_DATABASE)

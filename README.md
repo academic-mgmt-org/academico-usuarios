@@ -1,20 +1,21 @@
 # academico-usuarios
 
-Microservicio de gestion de usuarios y autenticacion del Sistema de Gestion Academica.
+Microservicio de gestion de usuarios del Sistema de Gestion Academica.
 
 ## Rol en la arquitectura
 
-Este servicio es la autoridad de autenticacion para el flujo usado por `academico-gateway`:
+Este servicio queda reservado para la gestion del ciclo de vida de usuarios:
 
-- Valida credenciales de usuario.
-- Emite `accessToken` y `refreshToken` JWT.
-- Valida JWT mediante `POST /api/v1/auth/validate-token-2`.
-- Publica la whitelist de rutas publicas mediante `GET /api/v1/whitelist/all`.
-- Protege llamadas internas con `USUARIOS_API_KEY`.
+- Consulta de usuarios.
+- Creacion y actualizacion de usuarios.
+- Activacion y desactivacion de usuarios.
+- Datos basicos de identidad y perfil.
+
+No implementa login, emision JWT, validacion JWT ni whitelist. Esa responsabilidad pertenece a `academico-login`.
 
 ## Documentacion transversal
 
-La documentacion canonica del flujo gateway -> usuarios -> JWT -> gateway -> servicio esta en:
+La documentacion canonica del flujo web -> gateway -> login -> JWT -> gateway -> servicio esta en:
 
 - `academico-gateway/docs/architecture/gateway-auth-routing.md`
 - `academico-gateway/docs/adr/0001-gateway-auth-jwt-routing.md`
@@ -28,9 +29,6 @@ Ver [.env.example](.env.example).
 Variables principales:
 
 - `PORT`
-- `USUARIOS_API_KEY`
-- `JWT_SECRET`
-- `JWT_DOC_SECRET`
 - `DB_HOST`
 - `DB_PORT`
 - `DB_DATABASE`

@@ -5,7 +5,7 @@
 # 2. Adjust the parameters below for the service name, image repository,
 #    ports, remote path and environment variables.
 # 3. Create the referenced secret variables in Azure DevOps before running
-#    the pipeline. Example: DB_PASSWORD, USUARIOS_API_KEY, etc.
+#    the pipeline. Example: DB_PASSWORD, SERVICE_API_KEY, etc.
 
 parameters:
 - name: dockerRegistryServiceConnection

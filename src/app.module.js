@@ -5,7 +5,6 @@ import { pinoLoggerConfig } from './config/pino-logger.config';
 import { HttpExceptionFilter } from './filters/http-exception.filter';
 import { APP_FILTER } from '@nestjs/core';
 import { HealthController } from './controller/health.controller';
-import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -13,8 +12,7 @@ import { AuthModule } from './auth/auth.module';
     ConfigModule.forRoot({
       envFilePath: '.env',
       isGlobal: true
-    }),
-    AuthModule
+    })
   ],
   controllers: [HealthController],
   providers: [
